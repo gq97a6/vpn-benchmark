@@ -4,6 +4,8 @@ process-results/outputs/graphs/*
 process-results/outputs/md/*
 process-results/outputs/csv/*
 
+.tmp
+
 !process-results/outputs/graphs/.gitkeep
 !process-results/outputs/md/.gitkeep
 !process-results/outputs/csv/.gitkeep
