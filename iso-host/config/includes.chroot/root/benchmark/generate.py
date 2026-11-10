@@ -5,6 +5,9 @@ import random
 @dataclass
 class Experiment:
     vpn: str = BASELINE["vpn"]
+    impair: bool = True
+    bandwidth: str = BASELINE["bandwidth"]
+    burst: str = BASELINE["burst"]
     delay: str = BASELINE["delay"]
     jitter: str = BASELINE["jitter"]
     loss: str = BASELINE["loss"]
@@ -22,21 +25,30 @@ def map_experiments(experiments: list[Experiment], repeat_count: int) -> list[Ex
     random.shuffle(exps)
     return exps
 
-@dataclass
-class Experiment:
-    vpn: str = BASELINE["vpn"]
-    bandwidth: str = BASELINE["bandwidth"]
-    delay: str = BASELINE["delay"]
-    jitter: str = BASELINE["jitter"]
-    loss: str = BASELINE["loss"]
-    cpu_freq: str = BASELINE["cpu_freq"]
-    core_count: int = BASELINE["core_count"]
-
 flat_experiments = [
-    Experiment(), # Baseline
-    Experiment(bandwidth="1000mbit", delay="20ms", jitter="5ms", loss="0.1%"), # Realistic average residential fiber
-    Experiment(delay="50ms", jitter="10ms"), # Cryptographic sliding window stress (out-of-order)
-    Experiment(delay="100ms"), # Trans-Atlantic link (BDP stress)
-    Experiment(core_count=1, cpu_freq="1.5GHz"), # Context-switch and crypto-threading starvation
-    Experiment(core_count=2, cpu_freq="2.0GHz"), # Low-end VPS tier
+    # no tc, no netem - raw wire speed
+    Experiment(impair=False),
+    # netem only, zero impairment - tc overhead
+    Experiment(impair=True),
+
+    # strong box on LAN 10G - max VPN throughput
+    Experiment(bandwidth="10000mbit", burst="100mbit", delay="0ms", jitter="0ms", loss="0%"),
+
+    # strong box on fiber 1G - throughput on a good link
+    Experiment(bandwidth="1000mbit", burst="10mbit", delay="5ms", jitter="1ms", loss="0.01%"),
+
+    # strong box on 5G - throughput and stability on a lossy mobile link
+    Experiment(bandwidth="200mbit", burst="2mbit", delay="30ms", jitter="15ms", loss="0.5%"),
+
+    # weak box on 5G - does weak hardware degrade worse on a lossy link
+    Experiment(bandwidth="200mbit", burst="2mbit", delay="30ms", jitter="15ms", loss="0.5%", core_count=2, cpu_freq="2.0GHz"),
+
+    # weak box on fiber 1G - can a weak box fill a good link
+    Experiment(bandwidth="1000mbit", burst="10mbit", delay="5ms", jitter="1ms", loss="0.01%", core_count=2, cpu_freq="2.0GHz"),
+
+    # starved box on fiber 1G - compute floor
+    Experiment(bandwidth="1000mbit", burst="10mbit", delay="5ms", jitter="1ms", loss="0.01%", core_count=1, cpu_freq="1.5GHz"),
+
+    # strong box on long-haul 100ms - high-latency throughput
+    Experiment(bandwidth="1000mbit", burst="10mbit", delay="100ms", jitter="1ms", loss="0.1%"),
 ]

@@ -4,34 +4,38 @@ from generate import Experiment
 from shell import shell_on_guest, shell_on_host
 
 # Applies bandwidth shaping via TBF and network conditions via netem.
-# Limit 5000 caps the queue at ~7.5MB to prevent artificial black-holing.
-def _apply_network_impairments(experiment: Experiment):
+# netem limit is set high (20000) so netem never drops on its own.
+def apply_network_impairments(experiment: Experiment):
+    if not experiment.impair:
+        lift_network_impairments()
+        return
+
     for interface in [ROUTER_SERVER_LAN_INTERFACE, ROUTER_CLIENT_LAN_INTERFACE]:
         # Always wipe existing qdiscs first to prevent stacking conflicts
         shell_on_guest(ROUTER_SSH, f"tc qdisc del dev {interface} root 2>/dev/null || true")
 
         if experiment.bandwidth == "0":
             # No shaping, just impairments
-            cmd = f"tc qdisc add dev {interface} root handle 1: netem delay {experiment.delay} {experiment.jitter} loss {experiment.loss} limit 5000"
+            cmd = f"tc qdisc add dev {interface} root handle 1: netem delay {experiment.delay} {experiment.jitter} loss {experiment.loss} limit 20000"
         else:
             # Chain TBF (Bandwidth limit) -> Netem (Impairments)
-            # burst 1mbit allows TCP to ramp up properly without dropping start-of-stream packets
+            # burst scales with rate (~10ms of traffic) so the bucket does not underrun
             cmd = (
-                f"tc qdisc add dev {interface} root handle 1: tbf rate {experiment.bandwidth} burst 1mbit latency 50ms && "
-                f"tc qdisc add dev {interface} parent 1:1 handle 10: netem delay {experiment.delay} {experiment.jitter} loss {experiment.loss} limit 5000"
+                f"tc qdisc add dev {interface} root handle 1: tbf rate {experiment.bandwidth} burst {experiment.burst} latency 50ms && "
+                f"tc qdisc add dev {interface} parent 1:1 handle 10: netem delay {experiment.delay} {experiment.jitter} loss {experiment.loss} limit 20000"
             )
 
         shell_on_guest(ROUTER_SSH, cmd)
 
-def _lift_network_impairments():
-    shell_on_guest(ROUTER_SSH, f"tc qdisc del dev {ROUTER_SERVER_LAN_INTERFACE} root")
-    shell_on_guest(ROUTER_SSH, f"tc qdisc del dev {ROUTER_CLIENT_LAN_INTERFACE} root")
+def lift_network_impairments():
+    shell_on_guest(ROUTER_SSH, f"tc qdisc del dev {ROUTER_SERVER_LAN_INTERFACE} root", check=False)
+    shell_on_guest(ROUTER_SSH, f"tc qdisc del dev {ROUTER_CLIENT_LAN_INTERFACE} root", check=False)
 
-def _set_cpu_freq(freq):
+def set_cpu_freq(freq):
     shell_on_host(f"cpupower -c {GUEST_CAPPED_CORES} frequency-set --min {freq} > /dev/null 2>&1", False)
     shell_on_host(f"cpupower -c {GUEST_CAPPED_CORES} frequency-set --max {freq} > /dev/null 2>&1", False)
 
-def _recreate_domains(count):
+def recreate_domains(count):
     # Destroy guests
     shell_on_host(f"virsh destroy router", False)
     shell_on_host(f"virsh destroy client", False)
@@ -52,7 +56,7 @@ def _recreate_domains(count):
     shell_on_host(f"until ssh -o ConnectTimeout=1 -o BatchMode=yes server exit; do sleep 1; done", capture=True)
 
 
-def _manage_vpn(vpn: str, up: bool):
+def manage_vpn(vpn: str, up: bool):
     if vpn == "wireguard":
         if up:
             shell_on_guest(SERVER_SSH, "wg-quick up /etc/wireguard/server/wg0.conf")
@@ -84,25 +88,21 @@ def preconfigure_host():
     shell_on_host("echo 0 > /sys/devices/system/cpu/cpufreq/boost", check=False, capture=True)
 
     # Lock CPU governor to performance
-    shell_on_host("cpupower frequency-set --governor performance1", check=False, capture=True)
+    shell_on_host("cpupower frequency-set --governor performance", check=False, capture=True)
 
     # Flush infrastructure
-    _recreate_domains(BASELINE["core_count"])
+    recreate_domains(BASELINE["core_count"])
 
 def update_infrastructure(experiment: Experiment):
-    global current_experiment
-
     # Recreate domain every time
-    _recreate_domains(experiment.core_count)
+    recreate_domains(experiment.core_count)
 
     # Configure VPN
     if experiment.vpn != "none":
-        _manage_vpn(experiment.vpn, True)
+        manage_vpn(experiment.vpn, True)
 
     # Configure CPU frequency
-    _set_cpu_freq(experiment.cpu_freq)
+    set_cpu_freq(experiment.cpu_freq)
 
     # Configure network imapirments
-    _apply_network_impairments(experiment)
-
-    current_experiment = experiment
+    apply_network_impairments(experiment)

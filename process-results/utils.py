@@ -1,43 +1,34 @@
 import json
-import gzip
 import pandas as pd
 from pathlib import Path
 from static import *
 import csv
 import io
 
-# def parse_iperf(exp_dir):
-#     iperf_data = json.loads((exp_dir / "iperf.json").read_text())
-#     return int(iperf_data["end"]["sum_received"]["bits_per_second"] / 1_000_000)
 
 def parse_sar(exp_dir):
     sar_df = pd.read_csv(exp_dir / "cpu.csv", sep=None, engine="python")
     return (100.0 - pd.to_numeric(sar_df["%idle"], errors="coerce")).mean()
 
-def parse_flent(exp_dir):
-    # Fetch raw json
-    with gzip.open(next(exp_dir.glob("*.flent.gz")), "rt") as f:
-        flent_raw = json.load(f)
 
-    # Get results section
-    results = flent_raw.get("results", {})
-    
-    # Get filtered data series
-    ping_series = pd.Series([v for v in results.get("Ping (ms) avg", []) if v is not None])
-    down_series = pd.Series([v for v in results.get("TCP download sum", []) if v is not None])
-    up_series = pd.Series([v for v in results.get("TCP upload sum", []) if v is not None])
+def parse_iperf(exp_dir, filename):
+    data = json.loads((exp_dir / filename).read_text())
+    end = data["end"]
+    # sum_received = goodput of the receiving side; present for both -c and -R
+    block = end.get("sum_received") or end["sum_sent"]
+    return block["bits_per_second"] / 1_000_000
 
-    # Extract mean values
-    ping = flent_raw.get("metadata", {}).get("SERIES_META", {}).get("Ping (ms) avg", {}).get("MEAN_VALUE", 0)
-    down = flent_raw.get("metadata", {}).get("SERIES_META", {}).get("TCP download sum", {}).get("MEAN_VALUE", 0)
-    up = flent_raw.get("metadata", {}).get("SERIES_META", {}).get("TCP upload sum", {}).get("MEAN_VALUE", 0)
 
-    return down_series, up_series, ping_series, down, up, ping
+def parse_iperf_series(exp_dir, filename):
+    data = json.loads((exp_dir / filename).read_text())
+    return pd.Series([i["sum"]["bits_per_second"] / 1_000_000 for i in data.get("intervals", [])])
 
 def process_experiment(exp_dir: Path, exp_meta: dict) -> tuple[dict, dict]:
     header = {
         "vpn": exp_meta.get("vpn"),
-        "bandwidth": exp_meta.get("bandwidth"),
+        "impair": exp_meta.get("impair", True),
+        "bandwidth": exp_meta.get("bandwidth", "0"),
+        "burst": exp_meta.get("burst", "10mbit"),
         "delay": exp_meta.get("delay"),
         "jitter": exp_meta.get("jitter"),
         "loss": exp_meta.get("loss"),
@@ -45,24 +36,20 @@ def process_experiment(exp_dir: Path, exp_meta: dict) -> tuple[dict, dict]:
         "core_count": exp_meta.get("core_count", 0),
     }
 
-    down_series, up_series, ping_series, down, up, ping = parse_flent(exp_dir)
-
     row = {
         **header,
         "cpu": parse_sar(exp_dir),
-        "ping": ping,
-        "down": down,
-        "up": up,
+        "down": parse_iperf(exp_dir, "iperf_down.json"),
+        "up": parse_iperf(exp_dir, "iperf_up.json"),
     }
 
-    row_flent = {
+    row_series = {
         **header,
-        "ping": ping_series,
-        "down": down_series,
-        "up": up_series,
+        "down": parse_iperf_series(exp_dir, "iperf_down.json"),
+        "up": parse_iperf_series(exp_dir, "iperf_up.json"),
     }
 
-    return row, row_flent
+    return row, row_series
 
 
 def parse_benchmark_to_dataframe(results_dir: Path):
@@ -71,25 +58,26 @@ def parse_benchmark_to_dataframe(results_dir: Path):
         meta_list = json.load(f)
 
     # Parse results
-    rows, rows_flent = [], []
+    rows, rows_series = [], []
     for idx, meta in enumerate(meta_list):
-        row, flent_row = process_experiment(results_dir / str(idx), meta)
+        row, series_row = process_experiment(results_dir / str(idx), meta)
         rows.append(row)
-        rows_flent.append(flent_row)
+        rows_series.append(series_row)
 
     # Create dataframes
     df = pd.DataFrame(rows)
-    df_flent = pd.DataFrame(rows_flent)
+    df_series = pd.DataFrame(rows_series)
 
     # Clean strings to numbers
-    for adf in df, df_flent:
+    for adf in df, df_series:
         adf["bandwidth"] = adf["bandwidth"].astype(str).str.replace("mbit", "", regex=False).astype(int)
+        adf["burst"] = adf["burst"].astype(str).str.replace("mbit", "", regex=False).astype(int)
         adf["delay"] = adf["delay"].astype(str).str.replace("ms", "", regex=False).astype(int)
         adf["jitter"] = adf["jitter"].astype(str).str.replace("ms", "", regex=False).astype(int)
         adf["loss"] = adf["loss"].astype(str).str.replace("%", "", regex=False).astype(float)
         adf["cpu_freq"] = adf["cpu_freq"].astype(str).str.replace("GHz", "", regex=False).astype(float)
 
-    # Enchance
+    # Enhance
     df["efficiency"] = (df["down"] + df["up"]) / df["cpu"]
 
     # Group reruns of same experiment
@@ -111,7 +99,7 @@ def parse_benchmark_to_dataframe(results_dir: Path):
         df_sd.reset_index(),
         df_rsd.reset_index(),
         df_combined,
-        df_flent
+        df_series,
     )
 
 def df_combined_to_markdown(
@@ -198,12 +186,8 @@ def df_combined_to_csv(
 
     return output.getvalue()
 
-def filter_by_mask(df, mask):
-    return df[
-        (df['bandwidth'] == mask[0]) &
-        (df['delay'] == mask[1]) &
-        (df['jitter'] == mask[2]) &
-        (df['loss'] == mask[3]) &
-        (df['cpu_freq'] == mask[4]) &
-        (df['core_count'] == mask[5])
-    ]
+def filter_by_mask(df, mask: dict):
+    m = pd.Series(True, index=df.index)
+    for col, val in mask.items():
+        m &= (df[col] == val)
+    return df[m]

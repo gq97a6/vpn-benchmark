@@ -18,7 +18,7 @@ A highly reproducible, KVM-based testbed for benchmarking VPN protocols (Wiregua
 
 #### QEMU Networks
 
-- ``mgmt0`` - Managment network for remote control over SSH
+- ``mgmt0`` - Management network for remote control over SSH
 - ``lan0`` - LAN network between server and router
 - ``lan1`` - LAN network between client and router
 
@@ -52,23 +52,26 @@ A highly reproducible, KVM-based testbed for benchmarking VPN protocols (Wiregua
 #### Precautions
 
 * Diskless system (toram)
-* Core pining for QEMU emulation
+* Core pinning for QEMU emulation
 * Core isolation for QEMU guests
 * CPU performance and frequency scaling disabled
 * Randomized list of experiments to avoid thermal carryover
 * TCP congestion control set to `bbr` for guests
 * Per socket TCP buffers increased for guests
-* Client and server virtual machines recrated from scratch for every experiment
-* iperf3 is run with four parallel streams
+* Client and server virtual machines recreated from scratch for every experiment
+* iperf3 runs 4 parallel streams in both directions (forward + reverse), 30 s each, omitting the first 10 s (slow-start) from each average
 * Each VPN configured with 1420 MTU
 
 ## Experiments
 
-Each experiment is set of conditions under which benchmarks are run:
+An experiment is a fully defined **link** (rate, burst, delay, jitter, loss) plus the **machine profile** it runs on. Every field is explicit — there is no "unlimited" or undefined state, so each result is measured against a stated condition.
+
 ```python
 class Experiment:
     vpn: str = BASELINE["vpn"]
+    impair: bool = True              # False = no tc at all (raw wire speed)
     bandwidth: str = BASELINE["bandwidth"]
+    burst: str = BASELINE["burst"]   # token bucket, ~10ms of the rate
     delay: str = BASELINE["delay"]
     jitter: str = BASELINE["jitter"]
     loss: str = BASELINE["loss"]
@@ -76,30 +79,66 @@ class Experiment:
     core_count: int = BASELINE["core_count"]
 ```
 
-Each experiment is run for each protocol 10 times:
+Each experiment is repeated for every protocol (`none`, `wireguard`, `nebula`, `openvpn`) `REPEAT_COUNT` (25) times, in shuffled order.
+
+**Machine profiles**
+
+| Profile | Cores | Frequency |
+|---------|-------|-----------|
+| strong  | 4     | 4.0 GHz   |
+| weak    | 2     | 2.0 GHz   |
+| starved | 1     | 1.5 GHz   |
+
+**Links**
+
+| Link      | Rate       | Delay  | Jitter | Loss  | Burst    |
+|-----------|------------|--------|--------|-------|----------|
+| LAN 10G   | 10000 mbit | 0 ms   | 0 ms   | 0%    | 100 mbit |
+| Fiber 1G  | 1000 mbit  | 5 ms   | 1 ms   | 0.01% | 10 mbit  |
+| 5G        | 200 mbit   | 30 ms  | 15 ms  | 0.5%  | 2 mbit   |
+| Long-haul | 1000 mbit  | 100 ms | 1 ms   | 0.1%  | 10 mbit  |
+
+**Experiment set**
+
 ```python
-Experiment(), # Baseline: Raw throughput capabilities
-Experiment(bandwidth="300mbit", delay="20ms", jitter="5ms", loss="0.1%"), # Realistic average residential fiber
-Experiment(delay="20ms", jitter="50ms"), # Cryptographic sliding window stress (heavy out-of-order)
-Experiment(delay="100ms", loss="2.0%"), # TCP retransmission overhead amplification
-Experiment(core_count=1, cpu_freq="1.5GHz"), # Context-switch and crypto-threading starvation
-Experiment(core_count=2, cpu_freq="2.0GHz"), # Low-end VPS tier
-Experiment(bandwidth="50mbit", delay="10ms"), # Bufferbloat / narrow pipe queue saturation
+flat_experiments = [
+    Experiment(impair=False),  # control: no tc at all (raw wire speed)
+    Experiment(impair=True),   # control: netem only, zero impairment
+
+    # strong on LAN 10G - max VPN throughput
+    Experiment(bandwidth="10000mbit", burst="100mbit", delay="0ms", jitter="0ms", loss="0%"),
+    # strong on fiber 1G - throughput on a good link
+    Experiment(bandwidth="1000mbit", burst="10mbit", delay="5ms", jitter="1ms", loss="0.01%"),
+    # strong on 5G - lossy mobile link
+    Experiment(bandwidth="200mbit", burst="2mbit", delay="30ms", jitter="15ms", loss="0.5%"),
+    # weak on 5G - does weak hardware degrade worse on a lossy link
+    Experiment(bandwidth="200mbit", burst="2mbit", delay="30ms", jitter="15ms", loss="0.5%", core_count=2, cpu_freq="2.0GHz"),
+    # weak on fiber 1G - can a weak box fill a good link
+    Experiment(bandwidth="1000mbit", burst="10mbit", delay="5ms", jitter="1ms", loss="0.01%", core_count=2, cpu_freq="2.0GHz"),
+    # starved on fiber 1G - compute floor
+    Experiment(bandwidth="1000mbit", burst="10mbit", delay="5ms", jitter="1ms", loss="0.01%", core_count=1, cpu_freq="1.5GHz"),
+    # strong on long-haul 100ms - high-latency throughput
+    Experiment(bandwidth="1000mbit", burst="10mbit", delay="100ms", jitter="1ms", loss="0.1%"),
+]
 ```
 
 ## Impairments
 
-Network impairments examples (executed on router node):
-```bash
-# No shaping, just impairments
-tc qdisc add dev {interface} root handle 1: netem delay {delay} {jitter} loss {loss} limit 5000
+Applied on the router's `lan0`/`lan1` interfaces (egress), in two layers:
 
-# With bandwidth limit
-tc qdisc add dev {interface} root handle 1: tbf rate {bandwidth} burst 1mbit latency 50ms
-tc qdisc add dev {interface} parent 1:1 handle 10: netem delay {delay} {jitter} loss {loss} limit 5000
+- **TBF** (root) — emulates the link rate and its buffer.
+- **netem** (child, `parent 1:1`) — emulates propagation delay, jitter and packet loss.
+
+```bash
+# No bandwidth limit: netem only
+tc qdisc add dev {interface} root handle 1: netem delay {delay} {jitter} loss {loss} limit 20000
+
+# Bandwidth limit: TBF (rate) -> netem (delay/jitter/loss)
+tc qdisc add dev {interface} root handle 1: tbf rate {bandwidth} burst {burst} latency 50ms
+tc qdisc add dev {interface} parent 1:1 handle 10: netem delay {delay} {jitter} loss {loss} limit 20000
 ```
 
-CPU impairments examples (executed on host while nodes are destroyed):
+CPU impairments (executed on host while nodes are destroyed):
 ```bash
 # Core count
 virsh setvcpus client {count} --config
@@ -143,13 +182,13 @@ Variant B
 ```txt
 root_results_folder/
 ├── 0/
-│   ├── rrul-2026-05-21T214911.731061.flent.gz
 │   ├── cpu.csv
-│   └── iperf.json
-│── 1/
-│   ├── rrul-2026-05-21T214911.731061.flent.gz
+│   ├── iperf_down.json
+│   └── iperf_up.json
+├── 1/
 │   ├── cpu.csv
-│   └── iperf.json
+│   ├── iperf_down.json
+│   └── iperf_up.json
 └── metadata.json
 ```
 
@@ -157,20 +196,26 @@ root_results_folder/
 
 #### Hardware
 - Hardware virtualization
-- 24 CPU cores
-    - 4 per VM
-    - 4 for host
-    - 4 for QEMU emulator threads
+- 20 CPU cores
+    - 4 for the host (cores 0–3)
+    - 12 for the VMs (cores 4–15, 4 per VM)
+    - 4 for QEMU emulator threads (cores 16–19)
 
 > [!TIP]
 > To lower CPU core count requirement edit following
-> - Core pining in domain XML configurations
+> - Core pinning in domain XML configurations
 > - Host core isolation configuration in boot parameters in `build.sh` for host ISO
 > - `GUEST_CAPPED_CORES` and `BASELINE` in `configuration.py`
 > - Experiments in `generate.py`
 
-#### For running via ISO
-``` bash
+> [!TIP]
+> If you are test running ISO using `Hyper-V` you have to enable nested virtualization
+> ```ps
+> Set-VMProcessor -VMName <vm> -ExposeVirtualizationExtensions $true
+> ```
+
+#### For building the ISO
+```bash
 apt update && apt install -y live-build
 ```
 1. Build `host.iso` with `build.sh`
@@ -178,19 +223,104 @@ apt update && apt install -y live-build
 1. Run `/root/benchmark/main.py`
 
 #### For testing on current system
-``` bash
+```bash
 apt update && apt install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils virtinst virt-manager python3
 ```
 1. Build `guest.iso` with `iso-guest/build.sh` and place it in `/qemu/guest.iso`
 1. Clone SSH configuration from `iso-host/config/includes.chroot/root/.ssh`
 1. Run `test.sh`
 
+## Manual control
+
+Setup python REPL
+```bash
+cd benchmark
+python3 -i -c "from infrastructure import *; from execute import *; from generate import *; from configuration import *; from shell import *"
+```
+
+Use framework
+```python
+# Prepare host
+preconfigure_host()
+
+# Apply specifc set of network impairments
+exp1 = Experiment(bandwidth="200mbit", burst="2mbit", delay="30ms", jitter="15ms", loss="0.5%", core_count=2, cpu_freq="2.0GHz")
+apply_network_impairments(exp1)
+
+# Lift all network impairments and traffic shaping
+lift_network_impairments()
+
+# Define CPU frequency for domains
+set_cpu_freq("2.0GHz")
+
+# Create/Recreate VMs with specifc core count
+recreate_domains(4)
+
+# Manage VPNs
+manage_vpn(vpn="nebula", up=True)
+manage_vpn(vpn="openvpn", up=True)
+manage_vpn(vpn="wireguard", up=True)
+
+# Run commands on host or guest
+shell_on_host(cmd="ls -al", check=False, capture=True)
+shell_on_guest(cmd="ls -al", handle="router", check=False, capture=True)
+shell_on_guest(cmd="ls -al", handle="server", check=False, capture=True)
+shell_on_guest(cmd="ls -al", handle="client", check=False, capture=True)
+```
+
+Direct control
+```bash
+# Step directly into one of the VMs (creds: root/password)
+virsh console router
+virsh console server
+virsh console client
+
+# Server side emulating network impairments without traffic shaping (run it on router)
+tc qdisc add dev lan0 root handle 1: netem delay 10ms 3ms loss 0.5% limit 20000
+
+# Client side emulating network impairments with traffic shaping (run it on router)
+tc qdisc add dev lan1 root handle 1: tbf rate 1000mbit burst 10mbit latency 50ms
+tc qdisc add dev lan1 parent 1:1 handle 10: netem delay 10ms 3ms loss 0.5% limit 20000
+
+# Lift impairments server side (run it on router)
+tc qdisc del dev lan0 root
+
+# Start iperf3 server (run it on server)
+iperf3 -s
+
+# Run iperf3 test (run it on client)
+iperf3 -c 10.10.0.1 -t 30 -O 10 -P 4 # Wiregurad
+iperf3 -c 10.20.0.1 -t 30 -O 10 -P 4 # Nebula
+iperf3 -c 10.30.0.1 -t 30 -O 10 -P 4 # OpenVPN
+iperf3 -c 10.0.10.2 -t 30 -O 10 -P 4 # Direct
+```
+
+Example workflow
+``` bash
+# Step 1. Configure 4 terminals: on host with REPL and one for each domain using `virsh console XYZ`
+
+# In host terminal configure infrastructure
+preconfigure_host()
+recreate_domains(4)
+manage_vpn(vpn="wireguard", up=True)
+set_cpu_freq("2.0GHz")
+
+# In router terminal configure network emulation
+tc qdisc add dev lan1 root handle 1: tbf rate 1000mbit burst 10mbit latency 50ms
+tc qdisc add dev lan1 parent 1:1 handle 10: netem delay 10ms 3ms loss 0.5% limit 20000
+
+# In server terminal start iperf3 server
+iperf3 -s
+
+# In client terminal run iperf3 test
+iperf3 -c 10.10.0.1 -t 30 -O 10 -P 4
+```
+
 ## Project structure
 ```bash
 .
 ├── build.sh # Builds host.iso into root directory of project
 ├── test.sh # Runs benchmark localy (via QEMU virtual machines)
-├── ai.sh # Dumps project and README.md for LLMs
 ├── iso-guest
 │   ├── build.sh # Builds guest.iso into iso-guest directory
 │   └── config # Live-build configuration

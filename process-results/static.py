@@ -1,59 +1,68 @@
 from pathlib import Path
 
-project_dir = Path("C:\\sync\\projects\\vpn_benchmark\\process-results")
+project_dir = Path(__file__).resolve().parent
 
 thresholds = {
     "down": 10,
     "up": 10,
-    "ping": 3,
     "cpu": 5,
 }
 
-key_cols = ["vpn", "bandwidth", "delay", "jitter", "loss", "cpu_freq", "core_count"]
+key_cols = ["vpn", "impair", "bandwidth", "burst", "delay", "jitter", "loss", "cpu_freq", "core_count"]
 
-data_cols =  [
+data_cols = [
     col + suf
-    for col in ["down", "up", "ping",  "cpu", "efficiency"]
+    for col in ["down", "up", "cpu", "efficiency"]
     for suf in ["_mean", "_rsd", "_sd"]
 ]
 
 cols_to_keep = key_cols + data_cols
 
-# (bandwidth, delay, jitter, loss, cpu_freq, core_count)
+# Each group selects experiments by a subset of key fields.
 experiment_groups = {
-    "baseline": {
-        "mask": (0, 0, 0, 0, 4.0, 4),
-        "cols": ["bandwidth", "delay", "jitter", "loss", "vpn"],
-        "desc": "Baseline"
+    "control_no_tc": {
+        "mask": {"impair": False},
+        "cols": ["vpn"],
+        "desc": "Control: no tc at all (raw wire speed)"
     },
-    "residential_fiber": {
-        "mask": (300, 20, 5, 0.1, 4.0, 4),
-        "cols": ["bandwidth", "delay", "jitter", "loss", "vpn"],
-        "desc": "Realistic average residential fiber (300 MBps | 20 ms delay | 5 ms jitter | 0.1% loss)"
+    "control_netem": {
+        "mask": {"impair": True, "bandwidth": 0},
+        "cols": ["vpn"],
+        "desc": "Control: netem only, zero impairment"
     },
-    "extreme_ooo": {
-        "mask": (0, 20, 50, 0.0, 4.0, 4),
-        "cols": ["delay", "jitter", "vpn"],
-        "desc": "Cryptographic sliding window stress (20 ms delay | 50 ms jitter)"
+    "lan_10g": {
+        "mask": {"bandwidth": 10000},
+        "cols": ["vpn"],
+        "desc": "Strong on LAN 10G"
     },
-    "retransmission": {
-        "mask": (0, 100, 0, 2.0, 4.0, 4),
-        "cols": ["delay", "loss", "vpn"],
-        "desc": "TCP retransmission overhead amplification (100 ms delay | 2% loss)"
+    "fiber_1g": {
+        "mask": {"bandwidth": 1000, "delay": 5, "core_count": 4},
+        "cols": ["vpn"],
+        "desc": "Strong on fiber 1G"
     },
-    "starvation": {
-        "mask": (0, 0, 0, 0.0, 1.5, 1),
-        "cols": ["cpu_freq", "core_count", "vpn"],
-        "desc": "Context-switch and crypto-threading starvation (1.5 GHz | 1 core)"
+    "5g": {
+        "mask": {"bandwidth": 200, "core_count": 4},
+        "cols": ["vpn"],
+        "desc": "Strong on 5G"
     },
-    "low_end_vps": {
-        "mask": (0, 0, 0, 0.0, 2.0, 2),
-        "cols": ["cpu_freq", "core_count", "vpn"],
-        "desc": "Low-end VPS tier (2.0 GHz | 2 core)"
+    "5g_weak": {
+        "mask": {"bandwidth": 200, "core_count": 2},
+        "cols": ["vpn"],
+        "desc": "Weak (2c/2GHz) on 5G"
     },
-    "bufferbloat": {
-        "mask": (50, 10, 0, 0.0, 4.0, 4),
-        "cols": ["bandwidth", "delay", "vpn"],
-        "desc": "Bufferbloat / narrow pipe queue saturation (50 MBps | 10 ms delay)"
+    "fiber_1g_weak": {
+        "mask": {"bandwidth": 1000, "delay": 5, "core_count": 2},
+        "cols": ["vpn"],
+        "desc": "Weak (2c/2GHz) on fiber 1G"
+    },
+    "fiber_1g_starved": {
+        "mask": {"bandwidth": 1000, "delay": 5, "core_count": 1},
+        "cols": ["vpn"],
+        "desc": "Starved (1c/1.5GHz) on fiber 1G"
+    },
+    "long_haul": {
+        "mask": {"bandwidth": 1000, "delay": 100},
+        "cols": ["vpn"],
+        "desc": "Strong on long-haul 100ms"
     },
 }

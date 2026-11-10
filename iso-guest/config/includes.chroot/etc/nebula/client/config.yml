@@ -30,7 +30,7 @@ logging:
 
 tun:
   disabled: false
-  dev: nebula
+  dev: neb0
   drop_local_broadcast: false
   drop_multicast: false
   tx_queue: 500

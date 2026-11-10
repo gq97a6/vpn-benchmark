@@ -13,14 +13,19 @@ cd "$SCRIPT_DIR/.tmp"
 echo "================================================== Initialize project"
 
 lb config \
+    --mirror-bootstrap "http://deb.debian.org/debian/" \
+    --mirror-chroot "http://deb.debian.org/debian/" \
+    --mirror-binary "http://deb.debian.org/debian/" \
+    --parent-mirror-bootstrap "http://deb.debian.org/debian/" \
+    --parent-mirror-chroot "http://deb.debian.org/debian/" \
+    --parent-mirror-binary "http://deb.debian.org/debian/" \
+    --keyring-packages debian-archive-keyring \
     --distribution trixie \
     --architecture amd64 \
     --archive-areas "main contrib non-free-firmware" \
     --bootappend-live "boot=live components locales=en_US.UTF-8 keyboard-layouts=us quiet splash live-noconfig=networking intel_pstate=disable amd_pstate=disable initcall_blacklist=amd_pstate_init toram isolcpus=4-15 nohz_full=4-15 rcu_nocbs=4-15" \
     --binary-images iso-hybrid \
-    --bootloaders "grub-pc,grub-efi" \
-    --loadlin false \
-    --win32-loader false
+    --bootloaders "grub-pc,grub-efi"
 
 # ============================================================================
 echo "================================================== Configure packages"

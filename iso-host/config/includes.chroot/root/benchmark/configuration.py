@@ -28,6 +28,7 @@ IP_CLIENT = {
 BASELINE = {
     "vpn": "none",
     "bandwidth": "0", # unlimited
+    "burst": "10mbit",
     "delay": "0ms",
     "jitter": "0ms",
     "loss": "0%",

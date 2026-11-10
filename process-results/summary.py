@@ -4,7 +4,7 @@ from utils import df_combined_to_markdown
 from utils import df_combined_to_csv
 from static import *
 
-df, df_mean, df_sd, df_rsd, df_combined, df_flent = parse_benchmark_to_dataframe(project_dir / "results")
+df, df_mean, df_sd, df_rsd, df_combined, df_series = parse_benchmark_to_dataframe(project_dir / "results")
 
 output_dir = project_dir / "outputs"
 output_dir.mkdir(parents=True, exist_ok=True)

@@ -6,10 +6,10 @@ from generate import Experiment
 from shell import shell_on_guest, shell_on_host
 from infrastructure import update_infrastructure
 
-def _begin_monitoring(results_folder):
+def begin_monitoring(results_folder):
     shell_on_guest(CLIENT_SSH, f"sar -u ALL -o {results_folder}/cpu.bin 1 >/dev/null 2>&1 &")
 
-def _stop_monitoring(results_folder):
+def stop_monitoring(results_folder):
     # Stop sar
     shell_on_guest(CLIENT_SSH, "pkill sar", check=False, capture=True)
     # Convert binary to csv
@@ -17,7 +17,7 @@ def _stop_monitoring(results_folder):
     # Remove binary
     shell_on_guest(CLIENT_SSH, f"rm {results_folder}/cpu.bin")
 
-def _execute_experiment(experiment: Experiment, root_results_folder, index):
+def execute_experiment(experiment: Experiment, root_results_folder, index):
 
     results_folder = f"{root_results_folder}/{index}"
 
@@ -32,11 +32,13 @@ def _execute_experiment(experiment: Experiment, root_results_folder, index):
     shell_on_guest(SERVER_SSH, "iperf3 -s > /dev/null 2>&1 &")
     sleep(1)
 
-    # Benchmark
-    _begin_monitoring(results_folder)
-    #shell_on_guest(CLIENT_SSH, f"flent rrul -H {IP_SERVER[experiment.vpn]} -l 120 -D {results_folder}")
-    shell_on_guest(CLIENT_SSH, f"iperf3 -c {IP_SERVER[experiment.vpn]} -t 120 -P 4 -J --logfile {results_folder}/iperf.json")
-    _stop_monitoring(results_folder)
+    # Benchmark - both directions, sequential
+    begin_monitoring(results_folder)
+    # client -> server (up)
+    shell_on_guest(CLIENT_SSH, f"iperf3 -c {IP_SERVER[experiment.vpn]} -t 30 -O 10 -P 4 -J --logfile {results_folder}/iperf_up.json")
+    # server -> client (down)
+    shell_on_guest(CLIENT_SSH, f"iperf3 -c {IP_SERVER[experiment.vpn]} -R -t 30 -O 10 -P 4 -J --logfile {results_folder}/iperf_down.json")
+    stop_monitoring(results_folder)
 
     # Stop servers
     shell_on_guest(SERVER_SSH, "pkill iperf3", check=False, capture=True)
@@ -61,4 +63,4 @@ def execute_experiments(experiments: list[Experiment], root_results_folder: str)
         print(f"====================================")
         print(f"PROGRESS: {index} out of {len(experiments)}")
         print(f"====================================")
-        _execute_experiment(experiment, root_results_folder, index)
+        execute_experiment(experiment, root_results_folder, index)
