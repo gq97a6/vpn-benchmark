@@ -18,51 +18,54 @@ data_cols = [
 
 cols_to_keep = key_cols + data_cols
 
+# Format
+# 1000 mbit • 10 mbit • 5 ms ± 1 ms • 0.01% • 1 core • 1.5 GHz
+
 # Each group selects experiments by a subset of key fields.
 experiment_groups = {
     "control_no_tc": {
         "mask": {"impair": False},
         "cols": ["vpn"],
-        "desc": "Control: no tc at all (raw wire speed)"
+        "desc": "control without tc"
     },
-    "control_netem": {
+    "control_tc": {
         "mask": {"impair": True, "bandwidth": 0},
         "cols": ["vpn"],
-        "desc": "Control: netem only, zero impairment"
+        "desc": "control with tc"
     },
-    "lan_10g": {
+    "lan10": {
         "mask": {"bandwidth": 10000},
         "cols": ["vpn"],
-        "desc": "Strong on LAN 10G"
+        "desc": "LAN 10G"
     },
-    "fiber_1g": {
+    "wan1": {
         "mask": {"bandwidth": 1000, "delay": 5, "core_count": 4},
         "cols": ["vpn"],
-        "desc": "Strong on fiber 1G"
+        "desc": "WAN 1G"
     },
-    "5g": {
+    "wwan200": {
         "mask": {"bandwidth": 200, "core_count": 4},
         "cols": ["vpn"],
-        "desc": "Strong on 5G"
+        "desc": "WWAN 200mbit"
     },
-    "5g_weak": {
+    "wwan200_weak": {
         "mask": {"bandwidth": 200, "core_count": 2},
         "cols": ["vpn"],
-        "desc": "Weak (2c/2GHz) on 5G"
+        "desc": "WWAN 200mbit | Dual-Core Compute-Restricted"
     },
-    "fiber_1g_weak": {
+    "wan1_weak": {
         "mask": {"bandwidth": 1000, "delay": 5, "core_count": 2},
         "cols": ["vpn"],
-        "desc": "Weak (2c/2GHz) on fiber 1G"
+        "desc": "WAN 1G | Dual-Core Compute-Restricted"
     },
-    "fiber_1g_starved": {
+    "wan1_starved": {
         "mask": {"bandwidth": 1000, "delay": 5, "core_count": 1},
         "cols": ["vpn"],
-        "desc": "Starved (1c/1.5GHz) on fiber 1G"
+        "desc": "WAN 1G | Single-Core Compute-Restricted"
     },
-    "long_haul": {
+    "lfn1": {
         "mask": {"bandwidth": 1000, "delay": 100},
         "cols": ["vpn"],
-        "desc": "Strong on long-haul 100ms"
+        "desc": "LFN 1G"
     },
 }

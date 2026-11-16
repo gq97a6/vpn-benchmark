@@ -7,7 +7,7 @@ from shell import shell_on_guest, shell_on_host
 from infrastructure import update_infrastructure
 
 def begin_monitoring(results_folder):
-    shell_on_guest(CLIENT_SSH, f"sar -u ALL -o {results_folder}/cpu.bin 1 >/dev/null 2>&1 &")
+    shell_on_guest(CLIENT_SSH, f"sar -u ALL -o {results_folder}/cpu.bin 1 < /dev/null >/dev/null 2>&1 &")
 
 def stop_monitoring(results_folder):
     # Stop sar
@@ -29,15 +29,15 @@ def execute_experiment(experiment: Experiment, root_results_folder, index):
 
     # Start servers
     #shell_on_guest(SERVER_SSH, "netserver > /dev/null 2>&1 &")
-    shell_on_guest(SERVER_SSH, "iperf3 -s > /dev/null 2>&1 &")
+    shell_on_guest(SERVER_SSH, "iperf3 -s -D")
     sleep(1)
 
     # Benchmark - both directions, sequential
     begin_monitoring(results_folder)
     # client -> server (up)
-    shell_on_guest(CLIENT_SSH, f"iperf3 -c {IP_SERVER[experiment.vpn]} -t 30 -O 10 -P 4 -J --logfile {results_folder}/iperf_up.json")
+    shell_on_guest(CLIENT_SSH, f"iperf3 -c {IP_SERVER[experiment.vpn]} -t 30 -O 10 -P 4 -J --logfile {results_folder}/iperf_up.json", check=False)
     # server -> client (down)
-    shell_on_guest(CLIENT_SSH, f"iperf3 -c {IP_SERVER[experiment.vpn]} -R -t 30 -O 10 -P 4 -J --logfile {results_folder}/iperf_down.json")
+    shell_on_guest(CLIENT_SSH, f"iperf3 -c {IP_SERVER[experiment.vpn]} -R -t 30 -O 10 -P 4 -J --logfile {results_folder}/iperf_down.json", check=False)
     stop_monitoring(results_folder)
 
     # Stop servers

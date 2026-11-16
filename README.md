@@ -144,7 +144,7 @@ CPU impairments (executed on host while nodes are destroyed):
 virsh setvcpus client {count} --config
 
 # Frequency
-cpupower -c {GUEST_CAPPED_CORES} frequency-set --min {freq}
+cpupower -c {GUEST_CAPPED_CORES} frequency-set --min {freq} --max {freq}
 ```
 
 ## Methodology
@@ -362,5 +362,8 @@ iperf3 -c 10.10.0.1 -t 30 -O 10 -P 4
 │                   ├── main.py
 │                   └── shell.py # Helper functions that execute shell commands on host/guest
 └── process-results
-    └── graph.py # Analyze results
+    ├── graph.py # Generate throughput and CPU time-series plots
+    ├── summary.py # Generate CSV and Markdown summary tables
+    ├── static.py # Experiment group definitions and thresholds
+    └── utils.py # Benchmark parsing and aggregation utilities
 ```

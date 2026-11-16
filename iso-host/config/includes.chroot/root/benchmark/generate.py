@@ -31,24 +31,24 @@ flat_experiments = [
     # netem only, zero impairment - tc overhead
     Experiment(impair=True),
 
-    # strong box on LAN 10G - max VPN throughput
+    # LAN 10G
     Experiment(bandwidth="10000mbit", burst="100mbit", delay="0ms", jitter="0ms", loss="0%"),
 
-    # strong box on fiber 1G - throughput on a good link
+    # WAN 1G
     Experiment(bandwidth="1000mbit", burst="10mbit", delay="5ms", jitter="1ms", loss="0.01%"),
 
-    # strong box on 5G - throughput and stability on a lossy mobile link
+    # WWAN 200mbit
     Experiment(bandwidth="200mbit", burst="2mbit", delay="30ms", jitter="15ms", loss="0.5%"),
 
-    # weak box on 5G - does weak hardware degrade worse on a lossy link
+    # WWAN 200mbit | Dual-Core Compute-Restricted
     Experiment(bandwidth="200mbit", burst="2mbit", delay="30ms", jitter="15ms", loss="0.5%", core_count=2, cpu_freq="2.0GHz"),
 
-    # weak box on fiber 1G - can a weak box fill a good link
+    # WAN 1G | Dual-Core Compute-Restricted
     Experiment(bandwidth="1000mbit", burst="10mbit", delay="5ms", jitter="1ms", loss="0.01%", core_count=2, cpu_freq="2.0GHz"),
 
-    # starved box on fiber 1G - compute floor
+    # WAN 1G | Single-Core Compute-Restricted
     Experiment(bandwidth="1000mbit", burst="10mbit", delay="5ms", jitter="1ms", loss="0.01%", core_count=1, cpu_freq="1.5GHz"),
 
-    # strong box on long-haul 100ms - high-latency throughput
+    # LFN 1G
     Experiment(bandwidth="1000mbit", burst="10mbit", delay="100ms", jitter="1ms", loss="0.1%"),
 ]

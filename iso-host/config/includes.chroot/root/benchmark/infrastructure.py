@@ -32,8 +32,7 @@ def lift_network_impairments():
     shell_on_guest(ROUTER_SSH, f"tc qdisc del dev {ROUTER_CLIENT_LAN_INTERFACE} root", check=False)
 
 def set_cpu_freq(freq):
-    shell_on_host(f"cpupower -c {GUEST_CAPPED_CORES} frequency-set --min {freq} > /dev/null 2>&1", False)
-    shell_on_host(f"cpupower -c {GUEST_CAPPED_CORES} frequency-set --max {freq} > /dev/null 2>&1", False)
+    shell_on_host(f"cpupower -c {GUEST_CAPPED_CORES} frequency-set --min {freq} --max {freq} > /dev/null 2>&1", False)
 
 def recreate_domains(count):
     # Destroy guests
@@ -66,8 +65,8 @@ def manage_vpn(vpn: str, up: bool):
             shell_on_guest(SERVER_SSH, "wg-quick down /etc/wireguard/server/wg0.conf")
     if vpn == "nebula":
         if up:
-            shell_on_guest(SERVER_SSH, "nohup nebula -config /etc/nebula/server/config.yml > /dev/null 2>&1 &")
-            shell_on_guest(CLIENT_SSH, "nohup nebula -config /etc/nebula/client/config.yml > /dev/null 2>&1 &")
+            shell_on_guest(SERVER_SSH, "nohup nebula -config /etc/nebula/server/config.yml < /dev/null > /dev/null 2>&1 &")
+            shell_on_guest(CLIENT_SSH, "nohup nebula -config /etc/nebula/client/config.yml < /dev/null > /dev/null 2>&1 &")
         else:
             shell_on_guest(CLIENT_SSH, "pkill nebula", check=False, capture=True)
             shell_on_guest(SERVER_SSH, "pkill nebula", check=False, capture=True)

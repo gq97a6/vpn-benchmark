@@ -1,65 +1,45 @@
-import seaborn as sns
+import pandas as pd
 import matplotlib.pyplot as plt
 from utils import parse_benchmark_to_dataframe
 from utils import filter_by_mask
-from utils import df_combined_to_markdown
-from utils import df_combined_to_csv
 from static import *
 
 df, df_mean, df_sd, df_rsd, df_combined, df_series = parse_benchmark_to_dataframe(project_dir / "results")
 
+COLOR = {"down": "tab:blue", "up": "tab:orange", "cpu": "tab:green"}
+YLABEL = {"down": "Mbit/s", "up": "Mbit/s", "cpu": "CPU [%]"}
+VPN_ORDER = ["none", "wireguard", "nebula", "openvpn"]
+
+graphs_dir = project_dir / "outputs" / "graphs"
+for metric in ("down", "up", "cpu"):
+    (graphs_dir / metric).mkdir(parents=True, exist_ok=True)
+
 for filename, meta in experiment_groups.items():
     sdf = filter_by_mask(df_series, meta["mask"])
+    if sdf.empty:
+        continue
 
-    # Group by vpn to identify rows
-    vpn_groups = sdf.groupby('vpn')
-    vpn_list = list(vpn_groups.groups.keys())
-    num_vpns = len(vpn_list)
+    r = sdf.iloc[0]
+    subtext = (f"{int(r['bandwidth'])} mbit • {int(r['burst'])} mbit • "
+               f"{int(r['delay'])} ms ± {int(r['jitter'])} ms • "
+               f"{r['loss']:g}% • {int(r['core_count'])} core • {r['cpu_freq']:g} GHz")
 
-    # Grid: one row per VPN, one column per rerun
-    rows = max(num_vpns, 1)
-    cols = max((len(vpn_groups.get_group(v)) for v in vpn_list), default=1)
+    for metric in ("down", "up", "cpu"):
+        fig, axes = plt.subplots(len(VPN_ORDER), 1, figsize=(10, 11), sharex=True)
 
-    fig, axes = plt.subplots(
-        rows,
-        cols,
-        figsize=(max(10, cols), max(3, rows * 3)),
-        constrained_layout=True,
-        squeeze=False,
-    )
+        for ax, vpn in zip(axes, VPN_ORDER):
+            sub = sdf[sdf["vpn"] == vpn]
+            series = [s for s in sub[metric] if isinstance(s, pd.Series) and len(s)]
+            for s in series:
+                ax.plot(s.index, s.values, color=COLOR[metric], linewidth=0.8)
+            ax.set_title(vpn, fontsize=9, loc="left")
+            ax.set_ylabel(YLABEL[metric])
+            ax.grid(alpha=0.3)
 
-    for r in range(rows):
-        for c in range(cols):
-            ax = axes[r, c]
-            
-            # Check if we have a vpn group for this row index
-            # If you have fewer than 4 VPNs, this logic needs to be adjusted.
-            # Assuming exactly 4 VPNs as per your "4 rows, each row is a vpn" requirement.
-            if r < num_vpns:
-                vpn_val = vpn_list[r]
-                # Get all rows for this VPN
-                vpn_data = vpn_groups.get_group(vpn_val)
-                
-                # If you want each subplot to be a specific index/experiment within that VPN:
-                # This logic assumes the 10 columns represent the 10 experiments/runs per VPN
-                if c < len(vpn_data):
-                    row_idx = vpn_data.index[c]
-                    series_data1 = vpn_data.loc[row_idx, "down"]
-                    series_data2 = vpn_data.loc[row_idx, "up"]
-                    
-                    ax.plot(series_data1)
-                    ax.plot(series_data2)
-                    ax.set_title(f"V: {vpn_val}", fontsize=8)
-                    ax.tick_params(labelsize=6)
-                else:
-                    ax.axis('off')
-            else:
-                ax.axis('off')
-            
-            # Hide axes for empty cells if rows < 4
-            if r >= num_vpns:
-                ax.axis('off')
+        axes[-1].set_xlabel("time [s]")
+        fig.tight_layout(rect=[0, 0, 1, 0.95])
+        fig.suptitle(f"{meta['desc']} - {metric}", fontsize=13, y=0.99)
+        fig.text(0.5, 0.968, subtext, ha="center", va="top", fontsize=9, color="dimgray")
 
-    plt.suptitle(f"{meta['desc']}", fontsize=16)
-    plt.savefig(project_dir / "outputs" / "graphs" / f"{filename}_grid.png", dpi=300, bbox_inches="tight")
-    plt.close()
+        fig.savefig(graphs_dir / metric / f"{filename}.png", dpi=150, bbox_inches="tight")
+        plt.close(fig)

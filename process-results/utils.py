@@ -6,9 +6,24 @@ import csv
 import io
 
 
-def parse_sar(exp_dir):
+def parse_sar_series(exp_dir):
     sar_df = pd.read_csv(exp_dir / "cpu.csv", sep=None, engine="python")
-    return (100.0 - pd.to_numeric(sar_df["%idle"], errors="coerce")).mean()
+    ts = pd.to_datetime(sar_df["timestamp"], utc=True).dt.as_unit("s").astype("int64")
+    cpu = 100.0 - pd.to_numeric(sar_df["%idle"], errors="coerce")
+
+    mask = pd.Series(False, index=sar_df.index)
+    for filename in ("iperf_up.json", "iperf_down.json"):
+        data = json.loads((exp_dir / filename).read_text())
+        start = data["start"]["timestamp"]["timesecs"]
+        omit = data["start"]["test_start"]["omit"]
+        duration = data["start"]["test_start"]["duration"]
+        mask |= (ts > start + omit) & (ts <= start + omit + duration)
+
+    return cpu[mask].reset_index(drop=True)
+
+
+def parse_sar(exp_dir):
+    return parse_sar_series(exp_dir).mean()
 
 
 def parse_iperf(exp_dir, filename):
@@ -21,7 +36,11 @@ def parse_iperf(exp_dir, filename):
 
 def parse_iperf_series(exp_dir, filename):
     data = json.loads((exp_dir / filename).read_text())
-    return pd.Series([i["sum"]["bits_per_second"] / 1_000_000 for i in data.get("intervals", [])])
+    return pd.Series([
+        i["sum"]["bits_per_second"] / 1_000_000
+        for i in data.get("intervals", [])
+        if not i["sum"].get("omitted", False)
+    ])
 
 def process_experiment(exp_dir: Path, exp_meta: dict) -> tuple[dict, dict]:
     header = {
@@ -45,6 +64,7 @@ def process_experiment(exp_dir: Path, exp_meta: dict) -> tuple[dict, dict]:
 
     row_series = {
         **header,
+        "cpu": parse_sar_series(exp_dir),
         "down": parse_iperf_series(exp_dir, "iperf_down.json"),
         "up": parse_iperf_series(exp_dir, "iperf_up.json"),
     }
