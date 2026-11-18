@@ -1,3 +1,5 @@
+"""Utility functions for parsing raw iperf3 and sar results, aggregating runs, and formatting tables."""
+
 import json
 import pandas as pd
 from pathlib import Path
@@ -12,12 +14,23 @@ def parse_sar_series(exp_dir):
     cpu = 100.0 - pd.to_numeric(sar_df["%idle"], errors="coerce")
 
     mask = pd.Series(False, index=sar_df.index)
+    has_timing = False
     for filename in ("iperf_up.json", "iperf_down.json"):
-        data = json.loads((exp_dir / filename).read_text())
-        start = data["start"]["timestamp"]["timesecs"]
-        omit = data["start"]["test_start"]["omit"]
-        duration = data["start"]["test_start"]["duration"]
-        mask |= (ts > start + omit) & (ts <= start + omit + duration)
+        filepath = exp_dir / filename
+        if not filepath.exists():
+            continue
+        try:
+            data = json.loads(filepath.read_text())
+            start = data["start"]["timestamp"]["timesecs"]
+            omit = data["start"]["test_start"]["omit"]
+            duration = data["start"]["test_start"]["duration"]
+            mask |= (ts > start + omit) & (ts <= start + omit + duration)
+            has_timing = True
+        except (KeyError, json.JSONDecodeError):
+            continue
+
+    if not has_timing:
+        return cpu.reset_index(drop=True)
 
     return cpu[mask].reset_index(drop=True)
 
@@ -27,20 +40,34 @@ def parse_sar(exp_dir):
 
 
 def parse_iperf(exp_dir, filename):
-    data = json.loads((exp_dir / filename).read_text())
-    end = data["end"]
-    # sum_received = goodput of the receiving side; present for both -c and -R
-    block = end.get("sum_received") or end["sum_sent"]
-    return block["bits_per_second"] / 1_000_000
+    filepath = exp_dir / filename
+    if not filepath.exists():
+        return float("nan")
+    try:
+        data = json.loads(filepath.read_text())
+        end = data.get("end", {})
+        # sum_received = goodput of the receiving side; present for both -c and -R
+        block = end.get("sum_received") or end.get("sum_sent")
+        if not block:
+            return float("nan")
+        return block["bits_per_second"] / 1_000_000
+    except (KeyError, json.JSONDecodeError):
+        return float("nan")
 
 
 def parse_iperf_series(exp_dir, filename):
-    data = json.loads((exp_dir / filename).read_text())
-    return pd.Series([
-        i["sum"]["bits_per_second"] / 1_000_000
-        for i in data.get("intervals", [])
-        if not i["sum"].get("omitted", False)
-    ])
+    filepath = exp_dir / filename
+    if not filepath.exists():
+        return pd.Series(dtype=float)
+    try:
+        data = json.loads(filepath.read_text())
+        return pd.Series([
+            i["sum"]["bits_per_second"] / 1_000_000
+            for i in data.get("intervals", [])
+            if not i.get("sum", {}).get("omitted", False) and "bits_per_second" in i.get("sum", {})
+        ])
+    except (KeyError, json.JSONDecodeError):
+        return pd.Series(dtype=float)
 
 def process_experiment(exp_dir: Path, exp_meta: dict) -> tuple[dict, dict]:
     header = {
@@ -73,16 +100,25 @@ def process_experiment(exp_dir: Path, exp_meta: dict) -> tuple[dict, dict]:
 
 
 def parse_benchmark_to_dataframe(results_dir: Path):
-    # Get experiment metadata
-    with (results_dir / "metadata.json").open("r") as f:
-        meta_list = json.load(f)
+    # Find all directories containing metadata.json (supports flat or nested layouts)
+    meta_files = sorted(results_dir.glob("**/metadata.json"))
+    print(f"Found {len(meta_files)} folder(s) with metadata.json in {results_dir}")
 
-    # Parse results
     rows, rows_series = [], []
-    for idx, meta in enumerate(meta_list):
-        row, series_row = process_experiment(results_dir / str(idx), meta)
-        rows.append(row)
-        rows_series.append(series_row)
+    total_results = 0
+
+    for meta_path in meta_files:
+        exp_root = meta_path.parent
+        with meta_path.open("r", encoding="utf-8") as f:
+            meta_list = json.load(f)
+
+        total_results += len(meta_list)
+        for idx, meta in enumerate(meta_list):
+            row, series_row = process_experiment(exp_root / str(idx), meta)
+            rows.append(row)
+            rows_series.append(series_row)
+
+    print(f"Total results loaded: {total_results}")
 
     # Create dataframes
     df = pd.DataFrame(rows)

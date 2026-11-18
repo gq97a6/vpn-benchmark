@@ -179,8 +179,11 @@ Variant B
 
 ## Results format
 
+The processing scripts support both flat and nested result folder structures. Any subdirectory containing a `metadata.json` file is automatically discovered and flattened into the combined dataset.
+
 ```txt
-root_results_folder/
+# Flat layout
+results/
 ├── 0/
 │   ├── cpu.csv
 │   ├── iperf_down.json
@@ -190,6 +193,22 @@ root_results_folder/
 │   ├── iperf_down.json
 │   └── iperf_up.json
 └── metadata.json
+
+# Nested / batched layout
+results/
+├── batch1/
+│   ├── 0/
+│   ├── 1/
+│   └── metadata.json
+└── batch2/
+    ├── part1/
+    │   ├── 0/
+    │   ├── 1/
+    │   └── metadata.json
+    └── part2/
+        ├── 0/
+        ├── 1/
+        └── metadata.json
 ```
 
 ## Requirements

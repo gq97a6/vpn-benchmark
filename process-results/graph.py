@@ -1,3 +1,5 @@
+"""Generates time-series line plots for upload, download, and CPU utilization across experiment groups."""
+
 import pandas as pd
 import matplotlib.pyplot as plt
 from utils import parse_benchmark_to_dataframe

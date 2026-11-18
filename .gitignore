@@ -1,14 +1,9 @@
-process-results/results
-
-process-results/outputs/graphs/*
-process-results/outputs/md/*
-process-results/outputs/csv/*
+process-results/results/**
+process-results/outputs/**
+!process-results/outputs/**/
+!process-results/outputs/**/.gitkeep
 
 .tmp
-
-!process-results/outputs/graphs/.gitkeep
-!process-results/outputs/md/.gitkeep
-!process-results/outputs/csv/.gitkeep
-
-__pycache__
+__pycache__/
 .vscode/settings.json
+*.iso

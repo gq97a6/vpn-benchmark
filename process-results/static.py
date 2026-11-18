@@ -1,3 +1,5 @@
+"""Static definitions, thresholds, column keys, and scenario groupings for results processing."""
+
 from pathlib import Path
 
 project_dir = Path(__file__).resolve().parent
@@ -17,9 +19,6 @@ data_cols = [
 ]
 
 cols_to_keep = key_cols + data_cols
-
-# Format
-# 1000 mbit • 10 mbit • 5 ms ± 1 ms • 0.01% • 1 core • 1.5 GHz
 
 # Each group selects experiments by a subset of key fields.
 experiment_groups = {

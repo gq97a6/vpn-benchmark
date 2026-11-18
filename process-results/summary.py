@@ -1,3 +1,5 @@
+"""Parses benchmark outputs into DataFrames and generates aggregated Markdown/CSV summary reports."""
+
 from utils import parse_benchmark_to_dataframe
 from utils import filter_by_mask
 from utils import df_combined_to_markdown
